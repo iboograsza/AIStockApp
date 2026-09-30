@@ -21,7 +21,6 @@ struct KLineChartView: View {
         let totalCount = data.count
         if totalCount <= candleCount { return data }
         
-        // Convert drag offset into candle shift (approx 7px per candle)
         let candleWidth: CGFloat = 7.0
         let shiftCandles = Int((accumulatedOffset + dragOffset) / candleWidth)
         let endIndex = max(candleCount, min(totalCount, totalCount + shiftCandles))
@@ -148,6 +147,30 @@ struct InteractiveCandlestickView: View {
     let data: [KLineData]
     @Binding var selectedIndex: Int?
 
+    private func calcYPos(price: Double, minP: Double, range: Double, h: CGFloat) -> CGFloat {
+        h - CGFloat((price - minP) / range) * h
+    }
+
+    private func drawMALine(ctx: GraphicsContext, data: [KLineData], keyPath: KeyPath<KLineData, Double?>, minP: Double, range: Double, h: CGFloat, slotW: CGFloat, color: Color) {
+        var maPath = Path()
+        var started = false
+        for (i, c) in data.enumerated() {
+            if let val = c[keyPath: keyPath] {
+                let y = calcYPos(price: val, minP: minP, range: range, h: h)
+                let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: y)
+                if !started {
+                    maPath.move(to: pt)
+                    started = true
+                } else {
+                    maPath.addLine(to: pt)
+                }
+            }
+        }
+        if started {
+            ctx.stroke(maPath, with: .color(color), lineWidth: 1.2)
+        }
+    }
+
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -160,10 +183,6 @@ struct InteractiveCandlestickView: View {
                 let priceRange = max(maxP - minP, 0.001)
                 let slotW = w / CGFloat(count)
                 let barW = max(2.0, slotW * 0.7)
-
-                func yPos(_ price: Double) -> CGFloat {
-                    h - CGFloat((price - minP) / priceRange) * h
-                }
 
                 ZStack {
                     Canvas { ctx, _ in
@@ -182,47 +201,30 @@ struct InteractiveCandlestickView: View {
                             let color: Color = candle.isGreen ? .red : Color(red: 0, green: 0.78, blue: 0.2)
 
                             // High-Low Wick
+                            let yH = calcYPos(price: candle.high, minP: minP, range: priceRange, h: h)
+                            let yL = calcYPos(price: candle.low, minP: minP, range: priceRange, h: h)
                             var wick = Path()
-                            wick.move(to: CGPoint(x: cx, y: yPos(candle.high)))
-                            wick.addLine(to: CGPoint(x: cx, y: yPos(candle.low)))
+                            wick.move(to: CGPoint(x: cx, y: yH))
+                            wick.addLine(to: CGPoint(x: cx, y: yL))
                             ctx.stroke(wick, with: .color(color), lineWidth: 1.0)
 
                             // Open-Close Body
-                            let top = yPos(max(candle.open, candle.close))
-                            let bot = yPos(min(candle.open, candle.close))
+                            let top = calcYPos(price: max(candle.open, candle.close), minP: minP, range: priceRange, h: h)
+                            let bot = calcYPos(price: min(candle.open, candle.close), minP: minP, range: priceRange, h: h)
                             let bodyH = max(2.0, bot - top)
                             let rect = CGRect(x: cx - barW / 2, y: top, width: barW, height: bodyH)
                             ctx.fill(Path(rect), with: .color(color))
                         }
 
-                        // MA Lines Function
-                        func drawMA(keyPath: KeyPath<KLineData, Double?>, color: Color) {
-                            var maPath = Path()
-                            var started = false
-                            for (i, c) in data.enumerated() {
-                                if let val = c[keyPath: keyPath] {
-                                    let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: yPos(val))
-                                    if !started {
-                                        maPath.move(to: pt)
-                                        started = true
-                                    } else {
-                                        maPath.addLine(to: pt)
-                                    }
-                                }
-                            }
-                            if started {
-                                ctx.stroke(maPath, with: .color(color), lineWidth: 1.2)
-                            }
-                        }
-
-                        drawMA(keyPath: \.ma5, color: .yellow)
-                        drawMA(keyPath: \.ma10, color: .cyan)
-                        drawMA(keyPath: \.ma20, color: .purple)
+                        // Draw MA lines
+                        drawMALine(ctx: ctx, data: data, keyPath: \.ma5, minP: minP, range: priceRange, h: h, slotW: slotW, color: .yellow)
+                        drawMALine(ctx: ctx, data: data, keyPath: \.ma10, minP: minP, range: priceRange, h: h, slotW: slotW, color: .cyan)
+                        drawMALine(ctx: ctx, data: data, keyPath: \.ma20, minP: minP, range: priceRange, h: h, slotW: slotW, color: .purple)
 
                         // Crosshair highlight
                         if let sel = selectedIndex, sel < count {
                             let cx = slotW * CGFloat(sel) + slotW / 2
-                            let cy = yPos(data[sel].close)
+                            let cy = calcYPos(price: data[sel].close, minP: minP, range: priceRange, h: h)
                             var vLine = Path()
                             vLine.move(to: CGPoint(x: cx, y: 0))
                             vLine.addLine(to: CGPoint(x: cx, y: h))
@@ -260,6 +262,10 @@ struct InteractiveCandlestickView: View {
 struct MACDChartView: View {
     let data: [KLineData]
 
+    private func calcMacdYPos(val: Double, maxVal: Double, h: CGFloat) -> CGFloat {
+        h / 2.0 - CGFloat(val / maxVal) * (h / 2.0)
+    }
+
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -276,10 +282,6 @@ struct MACDChartView: View {
                 let allVals = allDifs + allDeas + allMacds
                 let maxVal = max(abs(allVals.max() ?? 1), abs(allVals.min() ?? -1), 0.001)
 
-                func yPos(_ val: Double) -> CGFloat {
-                    h / 2.0 - CGFloat(val / maxVal) * (h / 2.0)
-                }
-
                 Canvas { ctx, _ in
                     // Zero line
                     var zeroLine = Path()
@@ -291,8 +293,8 @@ struct MACDChartView: View {
                     for (i, item) in data.enumerated() {
                         if let macd = item.macd {
                             let cx = slotW * CGFloat(i) + slotW / 2
-                            let yTop = min(yPos(macd), h / 2.0)
-                            let yBot = max(yPos(macd), h / 2.0)
+                            let yTop = min(calcMacdYPos(val: macd, maxVal: maxVal, h: h), h / 2.0)
+                            let yBot = max(calcMacdYPos(val: macd, maxVal: maxVal, h: h), h / 2.0)
                             let barH = max(1.0, yBot - yTop)
                             let color: Color = macd >= 0 ? .red : Color(red: 0, green: 0.78, blue: 0.2)
                             let rect = CGRect(x: cx - barW / 2, y: yTop, width: barW, height: barH)
@@ -305,7 +307,7 @@ struct MACDChartView: View {
                     var difStarted = false
                     for (i, item) in data.enumerated() {
                         if let dif = item.dif {
-                            let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: yPos(dif))
+                            let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: calcMacdYPos(val: dif, maxVal: maxVal, h: h))
                             if !difStarted { difPath.move(to: pt); difStarted = true }
                             else { difPath.addLine(to: pt) }
                         }
@@ -317,7 +319,7 @@ struct MACDChartView: View {
                     var deaStarted = false
                     for (i, item) in data.enumerated() {
                         if let dea = item.dea {
-                            let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: yPos(dea))
+                            let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: calcMacdYPos(val: dea, maxVal: maxVal, h: h))
                             if !deaStarted { deaPath.move(to: pt); deaStarted = true }
                             else { deaPath.addLine(to: pt) }
                         }
