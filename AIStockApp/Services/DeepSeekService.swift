@@ -28,11 +28,17 @@ class DeepSeekService: ObservableObject {
     """
 
     // MARK: - Chat
-    func sendMessage(_ history: [ChatMessage], userMessage: String) async throws -> String {
+    func sendMessage(_ history: [ChatMessage], userMessage: String, newsContext: [NewsItem] = []) async throws -> String {
         guard !apiKey.isEmpty else { throw DeepSeekError.noAPIKey }
 
+        var prompt = systemPrompt
+        if !newsContext.isEmpty {
+            let newsSnippets = newsContext.prefix(8).map { "【\($0.source)】\($0.title)" }.joined(separator: "\n")
+            prompt += "\n\n【最新市场实时快报资讯】：\n\(newsSnippets)\n\n请在回答用户提问时，充分结合上述最新突发资讯与市场消息进行专业分析与解读。"
+        }
+
         var requestMessages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt]
+            ["role": "system", "content": prompt]
         ]
 
         // Add conversation history (last 10 messages to save tokens)

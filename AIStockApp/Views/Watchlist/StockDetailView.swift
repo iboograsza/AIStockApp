@@ -111,6 +111,7 @@ struct StockDetailView: View {
         .sheet(isPresented: $showChat) {
             AIChatView()
                 .environmentObject(chatVM)
+                .environmentObject(newsVM)
         }
     }
 

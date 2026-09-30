@@ -138,28 +138,56 @@ struct SearchStockView: View {
     @State private var searchText = ""
     @Environment(\.dismiss) var dismiss
 
+    private let hotStocks = [
+        SearchResult(name: "贵州茅台", code: "600519", exchange: "sh"),
+        SearchResult(name: "宁德时代", code: "300750", exchange: "sz"),
+        SearchResult(name: "比亚迪", code: "002594", exchange: "sz"),
+        SearchResult(name: "中信证券", code: "600030", exchange: "sh"),
+        SearchResult(name: "东方财富", code: "300059", exchange: "sz"),
+        SearchResult(name: "中国平安", code: "601318", exchange: "sh")
+    ]
+
     var body: some View {
         NavigationView {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                VStack {
+                VStack(spacing: 0) {
+                    // Custom search textfield
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                        TextField("输入股票名称、拼音或代码 (如 茅台 / 600519)", text: $searchText)
+                            .foregroundColor(.white)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .submitLabel(.search)
+                            .onSubmit {
+                                Task { await viewModel.searchStock(keyword: searchText) }
+                            }
+                        if !searchText.isEmpty {
+                            Button(action: {
+                                searchText = ""
+                                viewModel.searchResults = []
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(Color(white: 0.12))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
                     if viewModel.isSearching {
                         ProgressView()
                             .tint(.red)
                             .padding()
                     }
 
-                    if viewModel.searchResults.isEmpty && !searchText.isEmpty && !viewModel.isSearching {
-                        VStack(spacing: 12) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.largeTitle)
-                                .foregroundColor(.gray)
-                            Text("未找到相关股票")
-                                .foregroundColor(.gray)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
+                    if !viewModel.searchResults.isEmpty {
                         List(viewModel.searchResults) { result in
                             Button(action: {
                                 viewModel.addStock(result)
@@ -175,20 +203,63 @@ struct SearchStockView: View {
                                             .font(.caption)
                                     }
                                     Spacer()
-                                    Image(systemName: "plus.circle")
+                                    Image(systemName: "plus.circle.fill")
                                         .foregroundColor(.red)
+                                        .font(.title3)
                                 }
                             }
                             .listRowBackground(Color(white: 0.1))
                             .listRowSeparatorTint(Color.gray.opacity(0.2))
                         }
                         .listStyle(.plain)
+                    } else if !searchText.isEmpty && !viewModel.isSearching {
+                        VStack(spacing: 12) {
+                            Spacer()
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 40))
+                                .foregroundColor(.gray.opacity(0.6))
+                            Text("未找到相关股票")
+                                .foregroundColor(.gray)
+                            Spacer()
+                        }
+                    } else {
+                        // Hot recommendations
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("热门股票推荐")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                                .padding(.horizontal)
+                                .padding(.top, 12)
+
+                            List(hotStocks) { result in
+                                Button(action: {
+                                    viewModel.addStock(result)
+                                    dismiss()
+                                }) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(result.name)
+                                                .foregroundColor(.white)
+                                                .font(.system(size: 15, weight: .medium))
+                                            Text("\(result.fullCode.uppercased())")
+                                                .foregroundColor(.gray)
+                                                .font(.caption)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "plus.circle")
+                                            .foregroundColor(.red)
+                                    }
+                                }
+                                .listRowBackground(Color(white: 0.08))
+                                .listRowSeparatorTint(Color.gray.opacity(0.2))
+                            }
+                            .listStyle(.plain)
+                        }
                     }
                 }
             }
-            .navigationTitle("添加股票")
+            .navigationTitle("添加自选股")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索股票名称或代码")
             .onChange(of: searchText) { newValue in
                 Task { await viewModel.searchStock(keyword: newValue) }
             }

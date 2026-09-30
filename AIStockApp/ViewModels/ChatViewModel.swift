@@ -16,7 +16,7 @@ class ChatViewModel: ObservableObject {
         ))
     }
 
-    func sendMessage(_ text: String) async {
+    func sendMessage(_ text: String, newsContext: [NewsItem] = []) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -33,7 +33,11 @@ class ChatViewModel: ObservableObject {
                 messageToSend = "关于\(stock.name)(\(stock.exchange.rawValue)\(stock.id))，当前价\(String(format: "%.2f", stock.currentPrice))元：\(trimmed)"
             }
 
-            let response = try await DeepSeekService.shared.sendMessage(messages.dropLast(), userMessage: messageToSend)
+            let response = try await DeepSeekService.shared.sendMessage(
+                messages.dropLast(),
+                userMessage: messageToSend,
+                newsContext: newsContext
+            )
             messages.append(ChatMessage(role: .assistant, content: response))
         } catch let error as DeepSeekService.DeepSeekError {
             errorMessage = error.errorDescription

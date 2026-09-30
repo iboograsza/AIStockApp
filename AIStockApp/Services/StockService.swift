@@ -43,18 +43,47 @@ class StockService: ObservableObject {
 
     // MARK: - Search Stocks
     func searchStock(keyword: String) async throws -> [SearchResult] {
-        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        let urlString = "https://suggest3.sinajs.cn/suggest/type=11,12&key=\(encoded)"
-        guard let url = URL(string: urlString) else { throw StockError.invalidURL }
-
-        var request = URLRequest(url: url)
-        request.setValue("https://finance.sina.com.cn", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
-
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let text = String(data: data, encoding: .utf8) ?? ""
-        return parseSinaSearch(text)
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        
+        // 1. Try Tencent smartbox API (supports Chinese names, pinyin, and codes)
+        if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "https://smartbox.gtimg.cn/s3/?q=\(encoded)&t=all") {
+            var request = URLRequest(url: url)
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 5
+            
+            if let (data, _) = try? await URLSession.shared.data(for: request),
+               let text = String(data: data, encoding: .utf8) {
+                let results = parseTencentSearch(text)
+                if !results.isEmpty {
+                    return results
+                }
+            }
+        }
+        
+        // 2. Fallback to Eastmoney suggest API
+        if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "https://searchapi.eastmoney.com/api/suggest/get?input=\(encoded)&type=14") {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5
+            if let (data, _) = try? await URLSession.shared.data(for: request),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let table = json["QuotationCodeTable"] as? [String: Any],
+               let list = table["Data"] as? [[String: Any]] {
+                return list.compactMap { item -> SearchResult? in
+                    guard let code = item["Code"] as? String,
+                          let name = item["Name"] as? String else { return nil }
+                    let jys = "\(item["JYS"] ?? "1")"
+                    let exchange = (jys == "1" || code.hasPrefix("6")) ? "sh" : "sz"
+                    return SearchResult(name: name, code: code, exchange: exchange)
+                }
+            }
+        }
+        
+        return []
     }
+
 
     // MARK: - Parsers
     private func parseSinaResponse(_ response: String, codes: [String]) -> [Stock] {
@@ -107,7 +136,7 @@ class StockService: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "zh_CN")
 
-        return (response.data?.klines ?? []).compactMap { line in
+        var rawList: [KLineData] = (response.data?.klines ?? []).compactMap { line in
             let parts = line.components(separatedBy: ",")
             guard parts.count >= 6,
                   let date = formatter.date(from: parts[0]),
@@ -118,6 +147,69 @@ class StockService: ObservableObject {
                   let volume = Double(parts[5]) else { return nil }
             return KLineData(date: date, open: open, close: close, high: high, low: low, volume: volume)
         }
+
+        // Calculate MA5, MA10, MA20
+        for i in 0..<rawList.count {
+            if i >= 4 {
+                let sum5 = rawList[(i-4)...i].reduce(0) { $0 + $1.close }
+                rawList[i].ma5 = sum5 / 5.0
+            }
+            if i >= 9 {
+                let sum10 = rawList[(i-9)...i].reduce(0) { $0 + $1.close }
+                rawList[i].ma10 = sum10 / 10.0
+            }
+            if i >= 19 {
+                let sum20 = rawList[(i-19)...i].reduce(0) { $0 + $1.close }
+                rawList[i].ma20 = sum20 / 20.0
+            }
+        }
+
+        // Calculate MACD (EMA12, EMA26, DIF, DEA, MACD)
+        var ema12: Double = 0
+        var ema26: Double = 0
+        var dea: Double = 0
+        for i in 0..<rawList.count {
+            let close = rawList[i].close
+            if i == 0 {
+                ema12 = close
+                ema26 = close
+                dea = 0
+            } else {
+                ema12 = (2.0 * close + 11.0 * ema12) / 13.0
+                ema26 = (2.0 * close + 25.0 * ema26) / 27.0
+            }
+            let dif = ema12 - ema26
+            dea = (2.0 * dif + 8.0 * dea) / 10.0
+            let macdBar = (dif - dea) * 2.0
+            rawList[i].dif = dif
+            rawList[i].dea = dea
+            rawList[i].macd = macdBar
+        }
+
+        return rawList
+    }
+
+    private func parseTencentSearch(_ text: String) -> [SearchResult] {
+        var results: [SearchResult] = []
+        guard let start = text.range(of: "\""),
+              let end = text.range(of: "\"", range: start.upperBound..<text.endIndex) else {
+            return results
+        }
+        let data = String(text[start.upperBound..<end.lowerBound])
+        let items = data.components(separatedBy: "^")
+        for item in items {
+            let parts = item.components(separatedBy: "~")
+            // Format: ex~code~name~pinyin~type
+            if parts.count >= 3 {
+                let ex = parts[0].lowercased()
+                let code = parts[1]
+                let name = parts[2]
+                if !name.isEmpty && !code.isEmpty {
+                    results.append(SearchResult(name: name, code: code, exchange: ex))
+                }
+            }
+        }
+        return results
     }
 
     private func parseSinaSearch(_ text: String) -> [SearchResult] {

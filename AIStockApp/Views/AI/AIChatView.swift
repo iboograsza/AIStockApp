@@ -2,15 +2,16 @@ import SwiftUI
 
 struct AIChatView: View {
     @EnvironmentObject var viewModel: ChatViewModel
+    @EnvironmentObject var newsVM: NewsViewModel
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
 
     private let quickQuestions = [
-        "今日A股市场如何？",
-        "北向资金今日动向？",
-        "哪些板块值得关注？",
-        "如何看待当前市场情绪？",
-        "分析大盘趋势"
+        "结合最新突发快讯分析市场走向",
+        "解读今日热点资讯对大盘利好利空",
+        "今日哪些板块出现异动或利好？",
+        "北向资金今日动向如何？",
+        "如何看待当前整体市场情绪？"
     ]
 
     var body: some View {
@@ -120,9 +121,14 @@ struct AIChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Text("股智AI · DeepSeek")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        Text("实时资讯已接入(\(newsVM.news.count)条)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { viewModel.clearHistory() }) {
@@ -133,6 +139,11 @@ struct AIChatView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            if newsVM.news.isEmpty {
+                Task { await newsVM.loadNews() }
+            }
+        }
     }
 
     private func sendMessage() {
@@ -140,7 +151,7 @@ struct AIChatView: View {
         guard !text.isEmpty else { return }
         inputText = ""
         isInputFocused = false
-        Task { await viewModel.sendMessage(text) }
+        Task { await viewModel.sendMessage(text, newsContext: newsVM.news) }
     }
 }
 
