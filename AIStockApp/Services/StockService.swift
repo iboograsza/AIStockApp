@@ -186,6 +186,43 @@ class StockService: ObservableObject {
             rawList[i].macd = macdBar
         }
 
+        // Calculate KDJ (9, 3, 3)
+        var prevK: Double = 50.0
+        var prevD: Double = 50.0
+        for i in 0..<rawList.count {
+            let startIdx = max(0, i - 8)
+            let window = rawList[startIdx...i]
+            let low9 = window.map { $0.low }.min() ?? rawList[i].low
+            let high9 = window.map { $0.high }.max() ?? rawList[i].high
+            let rsv: Double
+            if high9 > low9 {
+                rsv = ((rawList[i].close - low9) / (high9 - low9)) * 100.0
+            } else {
+                rsv = 50.0
+            }
+            let currK = (2.0 * prevK + rsv) / 3.0
+            let currD = (2.0 * prevD + currK) / 3.0
+            let currJ = 3.0 * currK - 2.0 * currD
+            rawList[i].k = currK
+            rawList[i].d = currD
+            rawList[i].j = currJ
+            prevK = currK
+            prevD = currD
+        }
+
+        // Calculate BOLL (20, 2)
+        for i in 0..<rawList.count {
+            if i >= 19 {
+                let window = rawList[(i-19)...i]
+                let mid = window.reduce(0) { $0 + $1.close } / 20.0
+                let variance = window.reduce(0) { $0 + pow($1.close - mid, 2) } / 20.0
+                let std = sqrt(variance)
+                rawList[i].bollMid = mid
+                rawList[i].bollUp = mid + 2.0 * std
+                rawList[i].bollDown = mid - 2.0 * std
+            }
+        }
+
         return rawList
     }
 

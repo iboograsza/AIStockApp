@@ -19,6 +19,16 @@ struct KLineData: Identifiable {
     var dea: Double?
     var macd: Double?
 
+    // KDJ indicators
+    var k: Double?
+    var d: Double?
+    var j: Double?
+
+    // BOLL indicators
+    var bollMid: Double?
+    var bollUp: Double?
+    var bollDown: Double?
+
     var isGreen: Bool { close >= open }
     var bodyHigh: Double { max(open, close) }
     var bodyLow: Double { min(open, close) }

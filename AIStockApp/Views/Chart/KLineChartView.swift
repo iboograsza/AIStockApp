@@ -1,19 +1,26 @@
 import SwiftUI
 
+enum MainIndicatorType: String, CaseIterable {
+    case ma = "MA均线"
+    case boll = "BOLL布林"
+}
+
 enum SubIndicatorType: String, CaseIterable {
     case volume = "成交量"
     case macd = "MACD"
+    case kdj = "KDJ"
 }
 
 struct KLineChartView: View {
     let data: [KLineData]
     
+    @State private var mainIndicator: MainIndicatorType = .ma
     @State private var subIndicator: SubIndicatorType = .volume
     @State private var dragOffset: CGFloat = 0
     @State private var accumulatedOffset: CGFloat = 0
     @State private var selectedIndex: Int? = nil
     
-    private let candleCount: Int = 50
+    private let candleCount: Int = 45
     
     // Calculate visible range based on pan/drag offset
     private var visibleData: [KLineData] {
@@ -21,7 +28,7 @@ struct KLineChartView: View {
         let totalCount = data.count
         if totalCount <= candleCount { return data }
         
-        let candleWidth: CGFloat = 7.0
+        let candleWidth: CGFloat = 7.5
         let shiftCandles = Int((accumulatedOffset + dragOffset) / candleWidth)
         let endIndex = max(candleCount, min(totalCount, totalCount + shiftCandles))
         let startIndex = max(0, endIndex - candleCount)
@@ -30,36 +37,58 @@ struct KLineChartView: View {
     }
     
     var body: some View {
-        VStack(spacing: 6) {
-            // Selected Candle Info Bar (Crosshair inspector)
+        VStack(spacing: 4) {
+            // MARK: 1. Main Indicator Selector Bar (Tonghuashun Style)
+            HStack(spacing: 8) {
+                Text("主图:")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                ForEach(MainIndicatorType.allCases, id: \.self) { type in
+                    Button(action: { mainIndicator = type }) {
+                        Text(type.rawValue)
+                            .font(.system(size: 11, weight: mainIndicator == type ? .bold : .regular))
+                            .foregroundColor(mainIndicator == type ? .white : .gray)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(mainIndicator == type ? Color.red.opacity(0.8) : Color(white: 0.12))
+                            .cornerRadius(4)
+                    }
+                }
+                Spacer()
+                Text("左右拖拽查看历史")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray.opacity(0.6))
+            }
+            .padding(.horizontal, 4)
+
+            // MARK: 2. Real-time Inspector / Indicator Values Header
             if let idx = selectedIndex, idx < visibleData.count {
-                let candle = visibleData[idx]
-                HStack(spacing: 8) {
-                    Text(dateLabel(candle.date, format: "yyyy/MM/dd"))
+                let c = visibleData[idx]
+                HStack(spacing: 6) {
+                    Text(dateLabel(c.date, format: "MM/dd"))
                         .foregroundColor(.gray)
-                    Text("开:\(String(format: "%.2f", candle.open))")
+                    Text("开:\(String(format: "%.2f", c.open))")
                         .foregroundColor(.white)
-                    Text("高:\(String(format: "%.2f", candle.high))")
+                    Text("高:\(String(format: "%.2f", c.high))")
                         .foregroundColor(.red)
-                    Text("低:\(String(format: "%.2f", candle.low))")
+                    Text("低:\(String(format: "%.2f", c.low))")
                         .foregroundColor(Color(red: 0, green: 0.78, blue: 0.2))
-                    Text("收:\(String(format: "%.2f", candle.close))")
-                        .foregroundColor(candle.isGreen ? .red : Color(red: 0, green: 0.78, blue: 0.2))
+                    Text("收:\(String(format: "%.2f", c.close))")
+                        .foregroundColor(c.isGreen ? .red : Color(red: 0, green: 0.78, blue: 0.2))
                 }
                 .font(.system(size: 10, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 4)
             } else if let last = visibleData.last {
-                // Moving average values header
-                HStack(spacing: 10) {
-                    if let ma5 = last.ma5 {
-                        Text("MA5:\(String(format: "%.2f", ma5))").foregroundColor(.yellow)
-                    }
-                    if let ma10 = last.ma10 {
-                        Text("MA10:\(String(format: "%.2f", ma10))").foregroundColor(.cyan)
-                    }
-                    if let ma20 = last.ma20 {
-                        Text("MA20:\(String(format: "%.2f", ma20))").foregroundColor(.purple)
+                HStack(spacing: 8) {
+                    if mainIndicator == .ma {
+                        if let ma5 = last.ma5 { Text("MA5:\(String(format: "%.2f", ma5))").foregroundColor(.yellow) }
+                        if let ma10 = last.ma10 { Text("MA10:\(String(format: "%.2f", ma10))").foregroundColor(.cyan) }
+                        if let ma20 = last.ma20 { Text("MA20:\(String(format: "%.2f", ma20))").foregroundColor(.purple) }
+                    } else {
+                        if let mid = last.bollMid { Text("MID:\(String(format: "%.2f", mid))").foregroundColor(.yellow) }
+                        if let up = last.bollUp { Text("UP:\(String(format: "%.2f", up))").foregroundColor(.cyan) }
+                        if let down = last.bollDown { Text("DN:\(String(format: "%.2f", down))").foregroundColor(.purple) }
                     }
                 }
                 .font(.system(size: 10, design: .monospaced))
@@ -67,12 +96,13 @@ struct KLineChartView: View {
                 .padding(.horizontal, 4)
             }
 
-            // Main K-Line Candlestick & MA Lines
+            // MARK: 3. Main K-Line Candlestick View (Height 210)
             InteractiveCandlestickView(
                 data: visibleData,
+                mainIndicator: mainIndicator,
                 selectedIndex: $selectedIndex
             )
-            .frame(height: 200)
+            .frame(height: 210)
             .gesture(
                 DragGesture()
                     .onChanged { value in
@@ -84,55 +114,67 @@ struct KLineChartView: View {
                     }
             )
 
-            // Sub-indicator Selector (Volume / MACD)
-            HStack(spacing: 12) {
+            // MARK: 4. Sub-indicator Selector Bar (Tonghuashun Style: VOL, MACD, KDJ)
+            HStack(spacing: 8) {
+                Text("副图:")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
                 ForEach(SubIndicatorType.allCases, id: \.self) { type in
                     Button(action: { subIndicator = type }) {
                         Text(type.rawValue)
-                            .font(.system(size: 10, weight: subIndicator == type ? .bold : .regular))
-                            .foregroundColor(subIndicator == type ? .red : .gray)
+                            .font(.system(size: 11, weight: subIndicator == type ? .bold : .regular))
+                            .foregroundColor(subIndicator == type ? .white : .gray)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(subIndicator == type ? Color(white: 0.18) : Color.clear)
+                            .padding(.vertical, 3)
+                            .background(subIndicator == type ? Color.red.opacity(0.8) : Color(white: 0.12))
                             .cornerRadius(4)
                     }
                 }
                 Spacer()
-                if subIndicator == .macd, let last = visibleData.last,
-                   let dif = last.dif, let dea = last.dea, let macd = last.macd {
-                    Text("DIF:\(String(format: "%.2f", dif)) DEA:\(String(format: "%.2f", dea)) MACD:\(String(format: "%.2f", macd))")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.gray)
+                // Current sub-indicator value readout
+                if let last = visibleData.last {
+                    if subIndicator == .macd, let dif = last.dif, let dea = last.dea, let macd = last.macd {
+                        Text("DIF:\(String(format: "%.2f", dif)) DEA:\(String(format: "%.2f", dea)) MACD:\(String(format: "%.2f", macd))")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.gray)
+                    } else if subIndicator == .kdj, let k = last.k, let d = last.d, let j = last.j {
+                        Text("K:\(String(format: "%.1f", k)) D:\(String(format: "%.1f", d)) J:\(String(format: "%.1f", j))")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.gray)
+                    }
                 }
             }
             .padding(.horizontal, 4)
+            .padding(.top, 4)
 
-            // Sub-chart View (Volume / MACD)
+            // MARK: 5. Sub-indicator Graph (Volume / MACD / KDJ)
             Group {
-                if subIndicator == .volume {
+                switch subIndicator {
+                case .volume:
                     VolumeBarView(data: visibleData)
-                } else {
+                case .macd:
                     MACDChartView(data: visibleData)
+                case .kdj:
+                    KDJChartView(data: visibleData)
                 }
             }
-            .frame(height: 65)
+            .frame(height: 75)
 
-            // Date Range Bar
+            // MARK: 6. Date Range Axis
             if let first = visibleData.first, let last = visibleData.last {
                 HStack {
-                    Text(dateLabel(first.date, format: "MM-dd"))
+                    Text(dateLabel(first.date, format: "yyyy-MM-dd"))
                     Spacer()
-                    Text("滑动可查看历史行情")
-                        .foregroundColor(.gray.opacity(0.4))
-                    Spacer()
-                    Text(dateLabel(last.date, format: "MM-dd"))
+                    Text(dateLabel(last.date, format: "yyyy-MM-dd"))
                 }
                 .font(.system(size: 9))
                 .foregroundColor(.gray.opacity(0.6))
                 .padding(.horizontal, 4)
             }
         }
-        .background(Color.black)
+        .padding(.vertical, 4)
+        .background(Color(white: 0.04))
+        .cornerRadius(8)
     }
 
     private func dateLabel(_ date: Date, format: String) -> String {
@@ -142,32 +184,33 @@ struct KLineChartView: View {
     }
 }
 
-// MARK: - Interactive Candlestick + MA Lines View
+// MARK: - Interactive Candlestick + MA/BOLL View
 struct InteractiveCandlestickView: View {
     let data: [KLineData]
+    let mainIndicator: MainIndicatorType
     @Binding var selectedIndex: Int?
 
     private func calcYPos(price: Double, minP: Double, range: Double, h: CGFloat) -> CGFloat {
         h - CGFloat((price - minP) / range) * h
     }
 
-    private func drawMALine(ctx: GraphicsContext, data: [KLineData], keyPath: KeyPath<KLineData, Double?>, minP: Double, range: Double, h: CGFloat, slotW: CGFloat, color: Color) {
-        var maPath = Path()
+    private func drawLine(ctx: GraphicsContext, data: [KLineData], keyPath: KeyPath<KLineData, Double?>, minP: Double, range: Double, h: CGFloat, slotW: CGFloat, color: Color) {
+        var path = Path()
         var started = false
         for (i, c) in data.enumerated() {
             if let val = c[keyPath: keyPath] {
                 let y = calcYPos(price: val, minP: minP, range: range, h: h)
                 let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: y)
                 if !started {
-                    maPath.move(to: pt)
+                    path.move(to: pt)
                     started = true
                 } else {
-                    maPath.addLine(to: pt)
+                    path.addLine(to: pt)
                 }
             }
         }
         if started {
-            ctx.stroke(maPath, with: .color(color), lineWidth: 1.2)
+            ctx.stroke(path, with: .color(color), lineWidth: 1.2)
         }
     }
 
@@ -178,24 +221,36 @@ struct InteractiveCandlestickView: View {
             let count = data.count
 
             if count > 0 {
-                let minP = (data.map { $0.low }.min() ?? 0) * 0.998
-                let maxP = (data.map { $0.high }.max() ?? 1) * 1.002
+                // Determine min and max taking indicators into account
+                var allPrices = data.map { $0.low } + data.map { $0.high }
+                if mainIndicator == .boll {
+                    allPrices.append(contentsOf: data.compactMap { $0.bollUp })
+                    allPrices.append(contentsOf: data.compactMap { $0.bollDown })
+                }
+                let minP = (allPrices.min() ?? 0) * 0.998
+                let maxP = (allPrices.max() ?? 1) * 1.002
                 let priceRange = max(maxP - minP, 0.001)
                 let slotW = w / CGFloat(count)
-                let barW = max(2.0, slotW * 0.7)
+                let barW = max(2.0, slotW * 0.72)
 
                 ZStack {
                     Canvas { ctx, _ in
-                        // Background Grid
+                        // Background price grid lines & price labels
                         for i in 1...3 {
                             let y = h * CGFloat(i) / 4.0
+                            let priceAtGrid = maxP - (Double(i) / 4.0) * priceRange
                             var line = Path()
                             line.move(to: CGPoint(x: 0, y: y))
                             line.addLine(to: CGPoint(x: w, y: y))
                             ctx.stroke(line, with: .color(Color(white: 0.12)), lineWidth: 0.5)
+
+                            let text = Text(String(format: "%.2f", priceAtGrid))
+                                .font(.system(size: 8))
+                                .foregroundColor(.gray.opacity(0.5))
+                            ctx.draw(text, at: CGPoint(x: 20, y: y - 6))
                         }
 
-                        // Candles
+                        // Candles (Tonghuashun Red = Up, Green = Down)
                         for (i, candle) in data.enumerated() {
                             let cx = slotW * CGFloat(i) + slotW / 2
                             let color: Color = candle.isGreen ? .red : Color(red: 0, green: 0.78, blue: 0.2)
@@ -216,10 +271,16 @@ struct InteractiveCandlestickView: View {
                             ctx.fill(Path(rect), with: .color(color))
                         }
 
-                        // Draw MA lines
-                        drawMALine(ctx: ctx, data: data, keyPath: \.ma5, minP: minP, range: priceRange, h: h, slotW: slotW, color: .yellow)
-                        drawMALine(ctx: ctx, data: data, keyPath: \.ma10, minP: minP, range: priceRange, h: h, slotW: slotW, color: .cyan)
-                        drawMALine(ctx: ctx, data: data, keyPath: \.ma20, minP: minP, range: priceRange, h: h, slotW: slotW, color: .purple)
+                        // Main indicator curves
+                        if mainIndicator == .ma {
+                            drawLine(ctx: ctx, data: data, keyPath: \.ma5, minP: minP, range: priceRange, h: h, slotW: slotW, color: .yellow)
+                            drawLine(ctx: ctx, data: data, keyPath: \.ma10, minP: minP, range: priceRange, h: h, slotW: slotW, color: .cyan)
+                            drawLine(ctx: ctx, data: data, keyPath: \.ma20, minP: minP, range: priceRange, h: h, slotW: slotW, color: .purple)
+                        } else {
+                            drawLine(ctx: ctx, data: data, keyPath: \.bollMid, minP: minP, range: priceRange, h: h, slotW: slotW, color: .yellow)
+                            drawLine(ctx: ctx, data: data, keyPath: \.bollUp, minP: minP, range: priceRange, h: h, slotW: slotW, color: .cyan)
+                            drawLine(ctx: ctx, data: data, keyPath: \.bollDown, minP: minP, range: priceRange, h: h, slotW: slotW, color: .purple)
+                        }
 
                         // Crosshair highlight
                         if let sel = selectedIndex, sel < count {
@@ -228,12 +289,12 @@ struct InteractiveCandlestickView: View {
                             var vLine = Path()
                             vLine.move(to: CGPoint(x: cx, y: 0))
                             vLine.addLine(to: CGPoint(x: cx, y: h))
-                            ctx.stroke(vLine, with: .color(.white.opacity(0.5)), style: StrokeStyle(lineWidth: 0.8, dash: [4, 4]))
+                            ctx.stroke(vLine, with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 0.8, dash: [4, 4]))
 
                             var hLine = Path()
                             hLine.move(to: CGPoint(x: 0, y: cy))
                             hLine.addLine(to: CGPoint(x: w, y: cy))
-                            ctx.stroke(hLine, with: .color(.white.opacity(0.5)), style: StrokeStyle(lineWidth: 0.8, dash: [4, 4]))
+                            ctx.stroke(hLine, with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 0.8, dash: [4, 4]))
                         }
                     }
 
@@ -331,6 +392,58 @@ struct MACDChartView: View {
     }
 }
 
+// MARK: - KDJ Chart View (Tonghuashun Style)
+struct KDJChartView: View {
+    let data: [KLineData]
+
+    private func calcKdjY(val: Double, h: CGFloat) -> CGFloat {
+        h - CGFloat(max(0, min(100, val)) / 100.0) * h
+    }
+
+    private func drawKdjCurve(ctx: GraphicsContext, data: [KLineData], keyPath: KeyPath<KLineData, Double?>, h: CGFloat, slotW: CGFloat, color: Color) {
+        var path = Path()
+        var started = false
+        for (i, item) in data.enumerated() {
+            if let val = item[keyPath: keyPath] {
+                let pt = CGPoint(x: slotW * CGFloat(i) + slotW / 2, y: calcKdjY(val: val, h: h))
+                if !started { path.move(to: pt); started = true }
+                else { path.addLine(to: pt) }
+            }
+        }
+        if started {
+            ctx.stroke(path, with: .color(color), lineWidth: 1.0)
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let count = data.count
+
+            if count > 0 {
+                let slotW = w / CGFloat(count)
+
+                Canvas { ctx, _ in
+                    // 20, 50, 80 reference lines
+                    for level in [20.0, 50.0, 80.0] {
+                        let y = calcKdjY(val: level, h: h)
+                        var line = Path()
+                        line.move(to: CGPoint(x: 0, y: y))
+                        line.addLine(to: CGPoint(x: w, y: y))
+                        ctx.stroke(line, with: .color(Color(white: 0.15)), lineWidth: 0.5)
+                    }
+
+                    // K (White), D (Yellow), J (Purple)
+                    drawKdjCurve(ctx: ctx, data: data, keyPath: \.k, h: h, slotW: slotW, color: .white)
+                    drawKdjCurve(ctx: ctx, data: data, keyPath: \.d, h: h, slotW: slotW, color: .yellow)
+                    drawKdjCurve(ctx: ctx, data: data, keyPath: \.j, h: h, slotW: slotW, color: .purple)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Volume Bar View
 struct VolumeBarView: View {
     let data: [KLineData]
@@ -344,7 +457,7 @@ struct VolumeBarView: View {
             if count > 0 {
                 let maxVol = max(data.map { $0.volume }.max() ?? 1, 1)
                 let slotW = w / CGFloat(count)
-                let barW = max(2.0, slotW * 0.7)
+                let barW = max(2.0, slotW * 0.72)
 
                 Canvas { ctx, _ in
                     for (i, candle) in data.enumerated() {

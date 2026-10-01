@@ -21,6 +21,7 @@ struct MainTabView: View {
 
             AIChatView()
                 .environmentObject(chatVM)
+                .environmentObject(newsVM)
                 .tabItem {
                     Label("AI助手", systemImage: "brain.head.profile")
                 }

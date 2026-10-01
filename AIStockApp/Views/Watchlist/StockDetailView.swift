@@ -47,8 +47,8 @@ struct StockDetailView: View {
                                 .frame(height: 260)
                         } else {
                             KLineChartView(data: klineData)
-                                .frame(height: 260)
-                                .padding(.horizontal)
+                                .frame(height: 350)
+                                .padding(.horizontal, 4)
                         }
                     }
 
