@@ -221,12 +221,8 @@ struct InteractiveCandlestickView: View {
             let count = data.count
 
             if count > 0 {
-                // Determine min and max taking indicators into account
-                var allPrices = data.map { $0.low } + data.map { $0.high }
-                if mainIndicator == .boll {
-                    allPrices.append(contentsOf: data.compactMap { $0.bollUp })
-                    allPrices.append(contentsOf: data.compactMap { $0.bollDown })
-                }
+                let bollPrices: [Double] = mainIndicator == .boll ? (data.compactMap { $0.bollUp } + data.compactMap { $0.bollDown }) : []
+                let allPrices = data.map { $0.low } + data.map { $0.high } + bollPrices
                 let minP = (allPrices.min() ?? 0) * 0.998
                 let maxP = (allPrices.max() ?? 1) * 1.002
                 let priceRange = max(maxP - minP, 0.001)
