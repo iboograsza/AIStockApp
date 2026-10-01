@@ -12,7 +12,7 @@ class ChatViewModel: ObservableObject {
     init() {
         messages.append(ChatMessage(
             role: .assistant,
-            content: "你好！我是股智AI助手 🤖\n\n我可以帮你：\n• 分析个股技术面和基本面\n• 解读市场行情和新闻\n• 回答投资相关问题\n• 提供板块趋势分析\n\n请问有什么可以帮你的？\n\n⚠️ 提示：需要在设置中配置 DeepSeek API Key 才能使用 AI 功能。"
+            content: "你好！我是股智AI金牌操盘助手 🤖\n\n我可以直接为你：\n🎯 推荐当前潜力金股与主线板块\n📈 深度诊断个股买卖点（支持目标价/止损参考）\n📰 结合实时快讯挖掘盘中暴涨与突发机会\n📊 解读主力资金动向与筹码分布\n\n你可以直接向我提问：例如「今天推荐买什么股票？」或「帮我诊断一下手中股票」！"
         ))
     }
 

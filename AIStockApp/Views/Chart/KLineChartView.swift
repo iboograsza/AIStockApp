@@ -13,32 +13,48 @@ enum SubIndicatorType: String, CaseIterable {
 
 struct KLineChartView: View {
     let data: [KLineData]
+    var stockName: String = ""
+    var isFullScreen: Bool = false
     
     @State private var mainIndicator: MainIndicatorType = .ma
     @State private var subIndicator: SubIndicatorType = .volume
+    
+    // Zoom scale state (Pinch zoom)
+    @State private var zoomLevel: CGFloat = 1.0
+    @State private var baseZoomLevel: CGFloat = 1.0
+    
+    // Pan drag state
     @State private var dragOffset: CGFloat = 0
     @State private var accumulatedOffset: CGFloat = 0
     @State private var selectedIndex: Int? = nil
     
-    private let candleCount: Int = 45
+    // Fullscreen sheet state
+    @State private var showFullScreen: Bool = false
     
-    // Calculate visible range based on pan/drag offset
+    // Dynamic candle count based on zoom level (20 to 120 candles)
+    private var currentCandleCount: Int {
+        let count = Int(45.0 / max(0.4, min(3.0, zoomLevel)))
+        return max(15, min(150, count))
+    }
+    
+    // Calculate visible range based on pan/drag offset and zoom
     private var visibleData: [KLineData] {
         guard !data.isEmpty else { return [] }
         let totalCount = data.count
-        if totalCount <= candleCount { return data }
+        let countToShow = min(totalCount, currentCandleCount)
+        if totalCount <= countToShow { return data }
         
-        let candleWidth: CGFloat = 7.5
-        let shiftCandles = Int((accumulatedOffset + dragOffset) / candleWidth)
-        let endIndex = max(candleCount, min(totalCount, totalCount + shiftCandles))
-        let startIndex = max(0, endIndex - candleCount)
+        let candleWidth: CGFloat = 7.5 * zoomLevel
+        let shiftCandles = Int((accumulatedOffset + dragOffset) / max(2.0, candleWidth))
+        let endIndex = max(countToShow, min(totalCount, totalCount + shiftCandles))
+        let startIndex = max(0, endIndex - countToShow)
         
         return Array(data[startIndex..<endIndex])
     }
     
     var body: some View {
-        VStack(spacing: 4) {
-            // MARK: 1. Main Indicator Selector Bar (Tonghuashun Style)
+        VStack(spacing: 6) {
+            // MARK: 1. Main Indicator Selector Bar & Zoom/FullScreen Controls
             HStack(spacing: 8) {
                 Text("主图:")
                     .font(.system(size: 11))
@@ -54,18 +70,60 @@ struct KLineChartView: View {
                             .cornerRadius(4)
                     }
                 }
+                
                 Spacer()
-                Text("左右拖拽查看历史")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.6))
+                
+                // Zoom out button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        zoomLevel = max(0.5, zoomLevel - 0.25)
+                    }
+                }) {
+                    Image(systemName: "minus.magnifyingglass")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                        .padding(4)
+                        .background(Color(white: 0.15))
+                        .cornerRadius(4)
+                }
+                
+                // Zoom in button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        zoomLevel = min(2.5, zoomLevel + 0.25)
+                    }
+                }) {
+                    Image(systemName: "plus.magnifyingglass")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                        .padding(4)
+                        .background(Color(white: 0.15))
+                        .cornerRadius(4)
+                }
+                
+                // Full Screen Toggle Button (Only show if not already fullscreen)
+                if !isFullScreen {
+                    Button(action: { showFullScreen = true }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            Text("全屏")
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.yellow)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.yellow.opacity(0.18))
+                        .cornerRadius(4)
+                    }
+                }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 6)
 
             // MARK: 2. Real-time Inspector / Indicator Values Header
             if let idx = selectedIndex, idx < visibleData.count {
                 let c = visibleData[idx]
-                HStack(spacing: 6) {
-                    Text(dateLabel(c.date, format: "MM/dd"))
+                HStack(spacing: 8) {
+                    Text(dateLabel(c.date, format: "yyyy/MM/dd"))
                         .foregroundColor(.gray)
                     Text("开:\(String(format: "%.2f", c.open))")
                         .foregroundColor(.white)
@@ -78,7 +136,7 @@ struct KLineChartView: View {
                 }
                 .font(.system(size: 10, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 6)
             } else if let last = visibleData.last {
                 HStack(spacing: 8) {
                     if mainIndicator == .ma {
@@ -93,28 +151,30 @@ struct KLineChartView: View {
                 }
                 .font(.system(size: 10, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 6)
             }
 
-            // MARK: 3. Main K-Line Candlestick View (Height 210)
+            // MARK: 3. Main K-Line Candlestick View (Supports Pan Drag & Pinch Zoom)
             InteractiveCandlestickView(
                 data: visibleData,
                 mainIndicator: mainIndicator,
-                selectedIndex: $selectedIndex
+                selectedIndex: $selectedIndex,
+                dragOffset: $dragOffset,
+                accumulatedOffset: $accumulatedOffset
             )
-            .frame(height: 210)
+            .frame(height: isFullScreen ? 280 : 210)
             .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        dragOffset = value.translation.width
+                MagnificationGesture()
+                    .onChanged { scale in
+                        let newScale = baseZoomLevel * scale
+                        zoomLevel = max(0.4, min(2.8, newScale))
                     }
-                    .onEnded { value in
-                        accumulatedOffset += value.translation.width
-                        dragOffset = 0
+                    .onEnded { _ in
+                        baseZoomLevel = zoomLevel
                     }
             )
 
-            // MARK: 4. Sub-indicator Selector Bar (Tonghuashun Style: VOL, MACD, KDJ)
+            // MARK: 4. Sub-indicator Selector Bar (VOL, MACD, KDJ)
             HStack(spacing: 8) {
                 Text("副图:")
                     .font(.system(size: 11))
@@ -131,7 +191,6 @@ struct KLineChartView: View {
                     }
                 }
                 Spacer()
-                // Current sub-indicator value readout
                 if let last = visibleData.last {
                     if subIndicator == .macd, let dif = last.dif, let dea = last.dea, let macd = last.macd {
                         Text("DIF:\(String(format: "%.2f", dif)) DEA:\(String(format: "%.2f", dea)) MACD:\(String(format: "%.2f", macd))")
@@ -144,7 +203,7 @@ struct KLineChartView: View {
                     }
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 6)
             .padding(.top, 4)
 
             // MARK: 5. Sub-indicator Graph (Volume / MACD / KDJ)
@@ -158,23 +217,29 @@ struct KLineChartView: View {
                     KDJChartView(data: visibleData)
                 }
             }
-            .frame(height: 75)
+            .frame(height: isFullScreen ? 100 : 75)
 
-            // MARK: 6. Date Range Axis
+            // MARK: 6. Date Range Axis & Tips
             if let first = visibleData.first, let last = visibleData.last {
                 HStack {
                     Text(dateLabel(first.date, format: "yyyy-MM-dd"))
+                    Spacer()
+                    Text("双指捏合缩放 · 左右滑屏拖动")
+                        .foregroundColor(.gray.opacity(0.5))
                     Spacer()
                     Text(dateLabel(last.date, format: "yyyy-MM-dd"))
                 }
                 .font(.system(size: 9))
                 .foregroundColor(.gray.opacity(0.6))
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 6)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .background(Color(white: 0.04))
         .cornerRadius(8)
+        .fullScreenCover(isPresented: $showFullScreen) {
+            FullScreenKLineModal(data: data, stockName: stockName)
+        }
     }
 
     private func dateLabel(_ date: Date, format: String) -> String {
@@ -184,11 +249,59 @@ struct KLineChartView: View {
     }
 }
 
+// MARK: - Full Screen K-Line Modal View
+struct FullScreenKLineModal: View {
+    let data: [KLineData]
+    let stockName: String
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 8) {
+                // Top full screen bar
+                HStack {
+                    Text(stockName.isEmpty ? "专业K线全屏盘口" : "\(stockName) · 全屏专业K线")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    Spacer()
+                    
+                    Button(action: { dismiss() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark.circle.fill")
+                            Text("退出全屏")
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(white: 0.15))
+                        .cornerRadius(16)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                // Large K-Line View
+                KLineChartView(data: data, stockName: stockName, isFullScreen: true)
+                    .padding(.horizontal, 6)
+                
+                Spacer()
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
 // MARK: - Interactive Candlestick + MA/BOLL View
 struct InteractiveCandlestickView: View {
     let data: [KLineData]
     let mainIndicator: MainIndicatorType
     @Binding var selectedIndex: Int?
+    @Binding var dragOffset: CGFloat
+    @Binding var accumulatedOffset: CGFloat
 
     private func calcYPos(price: Double, minP: Double, range: Double, h: CGFloat) -> CGFloat {
         h - CGFloat((price - minP) / range) * h
@@ -294,18 +407,27 @@ struct InteractiveCandlestickView: View {
                         }
                     }
 
-                    // Touch inspection detector
+                    // Combined Drag + Long Press Detector for smooth scrolling and crosshair
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { val in
-                                    let idx = Int(val.location.x / slotW)
-                                    if idx >= 0 && idx < count {
-                                        selectedIndex = idx
+                                    // If horizontal movement is significant, treat as pan scroll
+                                    if abs(val.translation.width) > 6 {
+                                        dragOffset = val.translation.width
+                                        selectedIndex = nil
+                                    } else {
+                                        // Otherwise inspect candle under finger
+                                        let idx = Int(val.location.x / slotW)
+                                        if idx >= 0 && idx < count {
+                                            selectedIndex = idx
+                                        }
                                     }
                                 }
-                                .onEnded { _ in
+                                .onEnded { val in
+                                    accumulatedOffset += val.translation.width
+                                    dragOffset = 0
                                     selectedIndex = nil
                                 }
                         )
@@ -340,7 +462,6 @@ struct MACDChartView: View {
                 let maxVal = max(abs(allVals.max() ?? 1), abs(allVals.min() ?? -1), 0.001)
 
                 Canvas { ctx, _ in
-                    // Zero line
                     var zeroLine = Path()
                     zeroLine.move(to: CGPoint(x: 0, y: h / 2.0))
                     zeroLine.addLine(to: CGPoint(x: w, y: h / 2.0))

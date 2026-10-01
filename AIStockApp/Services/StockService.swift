@@ -33,7 +33,7 @@ class StockService: ObservableObject {
         } else {
             secid = "0.\(code.dropFirst(2))"
         }
-        let urlString = "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=\(secid)&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=\(period.rawValue)&fqt=1&end=20500101&lmt=120"
+        let urlString = "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=\(secid)&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=\(period.rawValue)&fqt=1&end=20500101&lmt=500"
 
         guard let url = URL(string: urlString) else { throw StockError.invalidURL }
         let (data, _) = try await URLSession.shared.data(from: url)

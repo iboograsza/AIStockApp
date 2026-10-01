@@ -46,8 +46,8 @@ struct StockDetailView: View {
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 260)
                         } else {
-                            KLineChartView(data: klineData)
-                                .frame(height: 350)
+                            KLineChartView(data: klineData, stockName: stock.name)
+                                .frame(height: 355)
                                 .padding(.horizontal, 4)
                         }
                     }
