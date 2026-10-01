@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StockDetailView: View {
     let stock: Stock
+    @EnvironmentObject var watchlistVM: WatchlistViewModel
     @StateObject private var chatVM = ChatViewModel()
     @StateObject private var newsVM = NewsViewModel()
     @State private var klineData: [KLineData] = []
@@ -112,6 +113,7 @@ struct StockDetailView: View {
             AIChatView()
                 .environmentObject(chatVM)
                 .environmentObject(newsVM)
+                .environmentObject(watchlistVM)
         }
     }
 
